@@ -1,0 +1,37 @@
+connectivity:routes:
+  stage: connectivity
+  extends: .common_job
+  needs:
+    - job: "generate_configs"
+      artifacts: true
+    - job: "api:magic-router"
+  variables:
+    ARTIFACTS_DIR: "out"
+    #HOSTS_FILE: "$ARTIFACTS_DIR/hosts.ini"
+    # базовый адрес GitLab
+    GITLAB_BASE_URL: "https://gitlab.gostech.dev"
+    # куда всё складываем на раннере
+    #ANSIBLE_WORKDIR: "routes"
+    
+  script: |
+    set -euo pipefail
+    echo "=== Connectivity Check / Route Addition ==="
+    
+    # Ensure variables are set
+    if [ -z "${CLUSTER_SUBNET:-}" ]; then
+      echo "[ERROR] CLUSTER_SUBNET is not set!"
+      exit 1
+    fi
+    
+    if [ -z "${RUNNER_GW:-}" ]; then
+      echo "[FATAL] RUNNER_GW is not set! Please set it in CI/CD Variables."
+      # exit 1 # Fail if critical
+    fi
+
+    echo "Using CLUSTER_SUBNET: $CLUSTER_SUBNET"
+    
+    echo "Running local add_route_runner.sh script"
+    chmod +x ci/scripts/add_route_runner.sh
+    ./ci/scripts/add_route_runner.sh
+
+

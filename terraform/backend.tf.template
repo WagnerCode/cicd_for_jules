@@ -1,0 +1,18 @@
+terraform {
+  backend "s3" {
+  bucket = "opentofu-pango-s3"
+  key    = "pg-demo-CUSTOMENV.tfstate"
+#  access_key = "" provided by env vars AWS_
+#  secret_key = "" provided by env vars AWS_
+
+#  dynamodb_table = "terraform-locks"
+  skip_region_validation      = true
+  skip_credentials_validation = true
+  skip_requesting_account_id  = true
+  skip_s3_checksum            = true
+  endpoints = {
+    s3 = "https://s3.cloud.ru"
+  }
+    region = "ru-central-1"
+  }
+}

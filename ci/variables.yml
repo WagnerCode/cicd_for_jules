@@ -1,0 +1,79 @@
+# ============================================================================
+# GitLab CI/CD Variables
+# Глобальные переменные для pipeline
+# ============================================================================
+
+variables:
+  # === Переменные по умолчанию ===
+
+  # Пользователи
+  DEPLOY_NODE_USER: "user1"
+  ANSIBLE_USER: "user1"
+
+  # Пути на целевых нодах
+  KAFKA_INSTALL_DIR: "/pub/opt/Apache/kafka"
+  KAFKA_DATA_DIR: "/pub/KAFKADATA"
+  ZOOKEEPER_DATA_DIR: "/pub/zookeeper"
+  CORAX_DIR: "/corax/corax_prepare"
+  TMP_DIR: "/corax/corax_prepare/tmp"
+
+  # Порты сервисов
+  CRXUI_PORT: "9090"
+  CRXSR_PORT: "8081"
+
+  # === Пути на GitLab Runner ===
+
+  # Директория с дистрибутивами на runner (shell executor)
+  DISTRIBS_DIR: "/test-distribs"
+  # Имя архива с подготовленной структурой Corax
+  CORAX_ARCHIVE: "corax_prepare.zip"
+  # Рабочая директория на runner для распакованной структуры
+  RUNNER_WORKDIR: "${CI_PROJECT_DIR}/corax_prepare"
+
+  # === Ansible настройки ===
+
+  ANSIBLE_HOST_KEY_CHECKING: "False"
+  ANSIBLE_FORCE_COLOR: "True"
+  ANSIBLE_STDOUT_CALLBACK: "yaml"
+
+  # =============================
+  
+  CLUSTER_SUBNET: "10.79.11.16/28"
+  DEPLOY_NODE_HOST: "10.79.11.23"
+  CORAX_NODES: '[{"name":"corax-node1","host":"10.79.11.23","user":"root","roles":["kafka","zookeeper","crxsr","crxui"]},{"name":"corax-node2","host":"10.79.11.24","user":"root","roles":["kafka","zookeeper","crxsr","crxui"]},{"name":"corax-node3","host":"10.79.11.25","user":"root","roles":["kafka","zookeeper","crxsr","crxui"]}]'
+  CLUSTER_GATEWAY: "10.79.11.17"
+  
+  GIS_PROJECT_NAME: "Testovo"
+  CLUSTER_NUMBER: "2"
+  
+  USERS_SUBNET: "10.20.30.0/24"
+  INFRA_SUBNET_GITLAB: "172.18.0.0/24"
+  RUNNER_GW: "172.18.0.1"
+  INFRA_SUBNET_JUMPHOST: "10.10.11.0/24"
+  USER_NAME: "user1"  
+  USER_PASS: "SuperPass25!"
+  PUBLIC_KEY: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIADt3uhTVBXGGHI6ms3OQmfvVmbPdaxoaJZK4fLB43ly wagnercode@MacBook-Air-Kolchuk.local"
+
+
+
+
+
+  KAFKA_BROKER_CPU: "2"
+  KAFKA_BROKER_RAM: "4"
+  KAFKA_BROKER_OVERSUBSCRIPTION: "1:10"
+  KAFKA_BROKER_BOOT_DISK_SIZE: "40"
+  KAFKA_BROKER_DISK_SIZE: "10"
+
+  # === Режим безопасности кластера ===
+
+  # Режим безопасности кластера
+  # Возможные значения: "plaintext" или "ssl"
+  # - plaintext: Без шифрования (для dev/test окружений)
+  # - ssl: С полным шифрованием и сертификатами (для production)
+  CLUSTER_SECURITY_MODE: "ssl"
+
+  # Пароли для SSL сертификатов (используются только при CLUSTER_SECURITY_MODE=ssl)
+  # ВАЖНО: В production используйте GitLab CI/CD Variables с типом "Masked" для безопасного хранения!
+  SSL_KEYSTORE_PASSWORD: "changeit"
+  SSL_TRUSTSTORE_PASSWORD: "changeit"
+  SSL_KEY_PASSWORD: "changeit"

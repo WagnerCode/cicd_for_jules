@@ -1,0 +1,84 @@
+# ============================================================================
+# GitLab CI/CD SSH Functions Template
+# Переиспользуемые shell-функции для работы с SSH
+# ============================================================================
+
+# === Шаблон с общими SSH функциями ===
+.ssh_functions:
+  before_script:
+    - |
+      # ========================================
+      # SSH Functions для CI/CD pipeline
+      # ========================================
+
+      # Функция: setup_ssh_opts
+      # Возвращает стандартные SSH опции для CI/CD
+      setup_ssh_opts() {
+        local timeout="${1:-10}"
+        echo "-i ~/.ssh/id_rsa_corax \
+              -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR \
+              -o ConnectTimeout=${timeout} \
+              -o BatchMode=yes"
+      }
+
+      # Функция: wait_for_ssh
+      # Ожидание доступности SSH с retry
+      # Аргументы: host, user, max_retries, retry_interval, timeout
+      wait_for_ssh() {
+        local host="$1"
+        local user="$2"
+        local max_retries="${3:-20}"
+        local retry_interval="${4:-15}"
+        local ssh_timeout="${5:-10}"
+        
+        # Используем setup_ssh_opts для создания SSH опций с указанным таймаутом
+        local local_ssh_opts=$(setup_ssh_opts ${ssh_timeout})
+        local retry_count=0
+        local ssh_available=false
+        
+        echo "Ожидание SSH доступности для ${user}@${host}..."
+        echo "  Максимум попыток: ${max_retries}"
+        echo "  Интервал между попытками: ${retry_interval}с"
+        echo ""
+        
+        while [ ${retry_count} -lt ${max_retries} ]; do
+          retry_count=$((retry_count + 1))
+          echo "Попытка ${retry_count}/${max_retries}"
+          
+          # Проверка ping
+          if ping -c 1 -W 2 ${host} >/dev/null 2>&1; then
+            echo "  [PING] OK"
+            # Проверка SSH
+            if ssh ${local_ssh_opts} ${user}@${host} "exit 0" >/dev/null 2>&1; then
+              echo "  [SSH] OK"
+              ssh_available=true
+              break
+            else
+              echo "  [SSH] FAILED - сервис еще не запущен"
+            fi
+          else
+            echo "  [PING] FAILED - хост загружается"
+          fi
+          
+          if [ ${retry_count} -lt ${max_retries} ]; then
+            sleep ${retry_interval}
+          fi
+        done
+        
+        echo ""
+        if [ "${ssh_available}" = "true" ]; then
+          echo "✓ SSH доступ установлен (попыток: ${retry_count})"
+          return 0
+        else
+          echo "✗ ОШИБКА: Не удалось подключиться после ${max_retries} попыток"
+          return 1
+        fi
+      }
+
+      # Экспортируем SSH_OPTS для глобального использования
+      export SSH_OPTS=$(setup_ssh_opts 10)
+      
+      echo "✓ SSH функции инициализированы"
+      echo ""

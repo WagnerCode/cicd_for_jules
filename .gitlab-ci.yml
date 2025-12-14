@@ -1,0 +1,61 @@
+# ============================================================================
+# GitLab CI/CD Pipeline для деплоя кластера Corax на ALT Linux 10.2
+# ============================================================================
+#
+# Требуемые переменные GitLab CI/CD (Settings → CI/CD → Variables):
+#   - DEPLOY_NODE_HOST: IP адрес деплой ноды (например: 10.10.11.41)
+#   - SSH_PRIVATE_KEY: Приватный SSH ключ для доступа (type: File)
+#   - CORAX_NODES: JSON массив с описанием нод кластера
+#
+# Пример CORAX_NODES:
+#   [
+#     {
+#       "name": "corax-node1",
+#       "host": "10.10.11.42",
+#       "user": "root",
+#       "roles": ["kafka", "zookeeper"]
+#     },
+#     {
+#       "name": "corax-node2",
+#       "host": "10.10.11.43",
+#       "user": "root",
+#       "roles": ["kafka", "zookeeper", "crxsr", "crxui"]
+#     }
+#   ]
+#
+# Опциональные переменные (имеют значения по умолчанию):
+#   - DEPLOY_NODE_USER: Пользователь деплой ноды (default: root)
+#   - ANSIBLE_USER: Пользователь для ansible (default: user1)
+#   - KAFKA_INSTALL_DIR, KAFKA_DATA_DIR, ZOOKEEPER_DATA_DIR
+#   - CRXUI_PORT, CRXSR_PORT, KFK_VERSION
+#   - DISTRIBS_DIR: Директория с дистрибутивами на runner (default: /distribs)
+#
+# ============================================================================
+
+# Включение модулей конфигурации
+# include:
+#   - local: 'ci/stages.yml'      # Определение stages
+#   - local: 'ci/variables.yml'   # Глобальные переменные
+#   - local: 'ci/templates.yml'   # Переиспользуемые шаблоны
+#   - local: 'ci/jobs/config_generation.yml'  # Job генерации конфигов
+#   - local: 'terraform-ci/jobs/terraform.yml' # Job для Terraform
+#   - local: 'ci/jobs/node_preparation.yml'   # Job подготовки ноды
+#   - local: 'ci/jobs/jam.yml'
+
+
+include:
+  - local: 'ci/stages.yml'                    # Определение stages
+  - local: 'ci/variables.yml'                 # Глобальные переменные
+  - local: 'ci/templates.yml'                 # Переиспользуемые шаблоны
+  - local: 'ci/templates/ssh_functions.yml'   # SSH функции (переиспользуемые)
+  - local: 'ci/jobs/config_generation.yml'    # Job генерации конфигов
+  - local: 'ci/jobs/api_magic_router.yml'     # Job for Magic Router
+  - local: 'ci/jobs/connectivity.yml'         # Job for Connectivity
+  - local: 'terraform-ci/jobs/terraform.yml'  # Job для Terraform
+  #- local: 'ci/jobs/node_preparation.yml'   # Job подготовки ноды
+  - local: 'ci/jobs/deploy_node_init.yml'     # Job инициализации деплой ноды
+# - local: lvm
+  - local: 'ci/jobs/archive_deployment.yml'   # Job развертывания архива
+  - local: 'ci/jobs/cluster_setup.yml'        # Job настройки кластера
+  - local: 'ci/jobs/corax_deployment.yml'     # Job развертывания Corax
+  - local: 'ci/jobs/jam.yml'

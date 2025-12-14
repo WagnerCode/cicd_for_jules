@@ -1,0 +1,251 @@
+# ============================================================================
+# Job: Archive Deployment
+# Копирование и распаковка архива, копирование конфигурационных файлов
+# ============================================================================
+
+archive_deployment:
+  stage: archive_deployment
+  extends:
+    - .node_preparation_template
+    - .ssh_functions
+
+  dependencies:
+    - deploy_node_init
+    - generate_configs
+
+  script:
+    - echo "=========================================="
+    - echo "РАЗВЕРТЫВАНИЕ АРХИВА И КОНФИГУРАЦИЙ"
+    - echo "=========================================="
+    - echo ""
+    - echo "Деплой нода - ${DEPLOY_NODE_HOST}"
+    - echo "Целевая директория - ${CORAX_DIR}"
+    - echo "Архив - ${DISTRIBS_DIR}/${CORAX_ARCHIVE}"
+    - echo "Режим безопасности - ${CLUSTER_SECURITY_MODE}"
+    - echo ""
+
+    # SSH_OPTS уже экспортировано в ssh_functions.yml
+
+    # === Подготовка директории на деплой ноде ===
+    - echo "=== Подготовка директории ${CORAX_DIR} на деплой ноде ==="
+    - |
+      ssh ${SSH_OPTS} \
+        root@${DEPLOY_NODE_HOST} bash << EOFREMOTE
+      set -e
+
+      # Backup старой директории если существует
+      if [ -d "${CORAX_DIR}" ]; then
+        BACKUP_DIR="${CORAX_DIR}.backup.$(date +%Y%m%d_%H%M%S)"
+        echo "WARNING Директория ${CORAX_DIR} уже существует"
+        echo "Создание резервной копии \${BACKUP_DIR}"
+        mv ${CORAX_DIR} \${BACKUP_DIR} || {
+          echo "WARNING Не удалось создать backup, удаляем директорию..."
+          rm -rf ${CORAX_DIR}
+        }
+      fi
+
+      # Создание родительской директории
+      mkdir -p $(dirname ${CORAX_DIR})
+      echo "✓ Родительская директория подготовлена"
+      EOFREMOTE
+
+    - echo ""
+
+    # === Копирование архива на деплой ноду ===
+    - echo "=== Копирование архива ${CORAX_ARCHIVE} на деплой ноду ==="
+    - echo "Источник - ${DISTRIBS_DIR}/${CORAX_ARCHIVE}"
+    - echo "Назначение - root@${DEPLOY_NODE_HOST}:/tmp/${CORAX_ARCHIVE}"
+    - echo ""
+    - |
+      echo "Копирование архива..."
+      scp ${SSH_OPTS} \
+        ${DISTRIBS_DIR}/${CORAX_ARCHIVE} \
+        root@${DEPLOY_NODE_HOST}:/tmp/${CORAX_ARCHIVE}
+
+      scp ${SSH_OPTS} \
+        ${DISTRIBS_DIR}/dev_inventory.zip \
+        root@${DEPLOY_NODE_HOST}:/tmp/dev_inventory.zip
+        
+      echo ""
+      echo "✓ Архив скопирован на деплой ноду"
+    - echo ""
+
+    # === Распаковка архива на деплой ноде ===
+    - echo "=== Распаковка архива на деплой ноде ==="
+    - |
+      ssh ${SSH_OPTS} \
+        root@${DEPLOY_NODE_HOST} bash << EOFREMOTE
+      set -e
+
+      echo "Распаковка /tmp/${CORAX_ARCHIVE} в ${CORAX_DIR}..."
+
+      # Создание родительской директории для распаковки
+      mkdir -p $(dirname ${CORAX_DIR})
+      cd $(dirname ${CORAX_DIR})
+
+      # Распаковка архива
+      unzip -q /tmp/${CORAX_ARCHIVE}
+      unzip -q /tmp/dev_inventory.zip
+
+      # Проверка что архив создал директорию corax_prepare
+      if [ ! -d "corax_prepare" ]; then
+        echo " ERROR Архив не создал директорию corax_prepare!"
+        echo "Проверьте структуру архива"
+        exit 1
+      fi
+
+      echo "✓ Архив распакован в ${CORAX_DIR}"
+
+      # Удаление временного архива
+      rm -f /tmp/${CORAX_ARCHIVE}
+      echo "✓ Временный архив удален"
+
+      # Проверка структуры
+      echo ""
+      echo "--- Структура распакованной директории ---"
+      tree -L 2 ${CORAX_DIR} 2>/dev/null || ls -la ${CORAX_DIR}
+      EOFREMOTE
+
+    - echo ""
+
+    # === Копирование сгенерированных конфигов ===
+    - echo "=== Копирование сгенерированных конфигурационных файлов ==="
+    - echo "Замена конфигов из артефактов CI/CD..."
+    - echo ""
+
+    # Копирование inventory_deploy.ini → inventory.ini (только деплой нода)
+    - |
+      echo "Копирование inventory_deploy.ini → inventory.ini (только деплой нода)..."
+      scp ${SSH_OPTS} \
+        ${RUNNER_WORKDIR}/inventory_deploy.ini \
+        root@${DEPLOY_NODE_HOST}:${CORAX_DIR}/inventory.ini
+      echo "✓ inventory.ini скопирован (только деплой нода для playbook.yaml)"
+
+    # Копирование inventory.ini → files/inventory.j2 (полный inventory для рабочих нод)
+    - |
+      echo "Копирование inventory.ini → files/inventory.j2 (полный inventory)..."
+      scp ${SSH_OPTS} \
+        ${RUNNER_WORKDIR}/inventory.ini \
+        root@${DEPLOY_NODE_HOST}:${CORAX_DIR}/files/inventory.j2
+      echo "✓ inventory.j2 скопирован в директорию files/ (для рабочих нод кластера)"
+
+    # Копирование group_vars/all.yaml
+    - |
+      echo "Копирование group_vars/all.yaml..."
+      scp ${SSH_OPTS} \
+        ${RUNNER_WORKDIR}/group_vars/all.yaml \
+        root@${DEPLOY_NODE_HOST}:${CORAX_DIR}/group_vars/all.yaml
+      echo "✓ group_vars/all.yaml скопирован"
+
+    # Копирование ansible.cfg
+    - |
+      echo "Копирование ansible.cfg..."
+      scp ${SSH_OPTS} \
+        ${RUNNER_WORKDIR}/ansible.cfg \
+        root@${DEPLOY_NODE_HOST}:${CORAX_DIR}/ansible.cfg
+      echo "✓ ansible.cfg скопирован"
+
+    # Копирование SSH ключа
+    - |
+      echo "Копирование SSH ключа..."
+      scp ${SSH_OPTS} \
+        ${RUNNER_WORKDIR}/ssh_private_key \
+        root@${DEPLOY_NODE_HOST}:${CORAX_DIR}/ssh_private_key
+      ssh ${SSH_OPTS} \
+        root@${DEPLOY_NODE_HOST} "chmod 600 ${CORAX_DIR}/ssh_private_key"
+      echo "✓ SSH ключ скопирован"
+
+    - echo ""
+    - echo "✓ Все конфигурационные файлы заменены"
+    - echo ""
+
+    # === Копирование конфигурации безопасности ===
+    - echo "=== Применение конфигурации безопасности (${CLUSTER_SECURITY_MODE}) ==="
+    - |
+      # Копирование конфигурации безопасности в files/
+      echo "Копирование конфигурации режима ${CLUSTER_SECURITY_MODE}..."
+      scp ${SSH_OPTS} \
+        ${RUNNER_WORKDIR}/security_config/group_vars_security.yaml \
+        root@${DEPLOY_NODE_HOST}:${CORAX_DIR}/files/group_vars_all.j2
+      echo "✓ Конфигурация безопасности скопирована"
+
+    # === Копирование SSL сертификатов (если SSL режим) ===
+    - |
+      if [ "${CLUSTER_SECURITY_MODE}" == "ssl" ]; then
+        echo ""
+        echo "=== Копирование SSL сертификатов на деплой ноду ==="
+
+        # Копируем сертификаты в директорию files/ для дальнейшего развертывания
+        scp ${SSH_OPTS} \
+          ${RUNNER_WORKDIR}/security_config/ssl/kafka.keystore.jks \
+          root@${DEPLOY_NODE_HOST}:${CORAX_DIR}/files/
+
+        scp ${SSH_OPTS} \
+          ${RUNNER_WORKDIR}/security_config/ssl/kafka.truststore.jks \
+          root@${DEPLOY_NODE_HOST}:${CORAX_DIR}/files/
+
+        echo "✓ SSL сертификаты скопированы в ${CORAX_DIR}/files/"
+        echo "   (будут развернуты на рабочих нодах через playbook.yaml)"
+      fi
+
+    - echo ""
+
+    # === Проверка финальной структуры ===
+    - echo "=== Проверка финальной структуры на деплой ноде ==="
+    - |
+      ssh ${SSH_OPTS} \
+        root@${DEPLOY_NODE_HOST} bash << EOFREMOTE
+      set -e
+      cd ${CORAX_DIR}
+
+      echo "--- Структура директории ${CORAX_DIR}: ---"
+      tree -L 2 . 2>/dev/null || ls -laR | head -80
+
+      echo ""
+      echo "--- Проверка ключевых файлов: ---"
+
+      # Проверка обязательных файлов
+      FILES_TO_CHECK=(
+        "playbook.yaml"
+        "ansible.cfg"
+        "inventory.ini"
+        "group_vars/all.yaml"
+        "ssh_private_key"
+        "files/prepare.sh"
+        "files/prepare_corax.yaml"
+        "files/post_install_corax.yaml"
+      )
+
+      for FILE in "\${FILES_TO_CHECK[@]}"; do
+        if [ -e "\${FILE}" ]; then
+          SIZE=\$(stat -c%s "\${FILE}" 2>/dev/null || stat -f%z "\${FILE}" 2>/dev/null || echo '?')
+          echo "✓ \${FILE} (\${SIZE} bytes)"
+        else
+          echo "✗ WARNING: \${FILE} не найден!"
+        fi
+      done
+
+      echo ""
+      echo "--- Проверка директории files/ (дистрибутивы): ---"
+      if [ -d "files/" ]; then
+        ls -lh files/*.zip 2>/dev/null || echo "WARNING: ZIP файлы не найдены в files/"
+        echo "✓ Директория files/ найдена"
+      else
+        echo "✗ WARNING: Директория files/ не найдена!"
+      fi
+
+      echo ""
+      echo "✓ Проверка завершена"
+      EOFREMOTE
+
+    - echo ""
+    - echo "=========================================="
+    - echo "РАЗВЕРТЫВАНИЕ АРХИВА И КОНФИГУРАЦИЙ ЗАВЕРШЕНО"
+    - echo "=========================================="
+    - echo ""
+
+  artifacts:
+    name: "archive-deployment-${CI_PIPELINE_ID}"
+    paths:
+      - ${RUNNER_WORKDIR}/
+    expire_in: 1 week

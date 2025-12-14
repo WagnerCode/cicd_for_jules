@@ -1,0 +1,19 @@
+# ============================================================================
+# GitLab CI/CD Stages
+# Определение этапов pipeline для деплоя Corax на ALT Linux
+# ============================================================================
+
+stages:
+  - config_generation    # Генерация конфигурационных файлов
+  - api:magic-router    # 
+  - connectivity      
+  - terraform            # Применение Terraform конфигурации
+  #- 
+  #- node_preparation     # legacy
+
+  - cluster_setup        # Настройка SSH/sudoers на всех нодах кластера
+  - deploy_node_init     # Инициализация деплой ноды (SSH, пакеты)
+# - lvm                  # future work
+  - archive_deployment   # Копирование и распаковка архива + конфиги
+  - corax_deployment     # Запуск Ansible playbooks для деплоя Corax
+  - jam

@@ -1,0 +1,128 @@
+# ============================================================================
+# Job: Corax Deployment
+# Запуск Ansible playbooks для развертывания Corax
+# ============================================================================
+
+corax_deployment:
+  stage: corax_deployment
+  extends:
+    - .node_preparation_template
+    - .ssh_functions
+
+  dependencies:
+    - archive_deployment
+    # - cluster_setup
+    - generate_configs
+    #- prepare_deploy_node
+
+  script:
+    - echo "=========================================="
+    - echo "РАЗВЕРТЫВАНИЕ CORAX"
+    - echo "=========================================="
+    - echo ""
+    - echo "Деплой нода - ${DEPLOY_NODE_HOST}"
+    - echo "Целевая директория - ${CORAX_DIR}"
+    - echo "Режим безопасности - ${CLUSTER_SECURITY_MODE}"
+    - echo ""
+
+    # SSH_OPTS уже экспортировано в ssh_functions.yml
+
+    # === Запуск Ansible playbook для подготовки ===
+    - echo "=== Запуск Ansible playbook для подготовки Corax ==="
+    - |
+      ssh ${SSH_OPTS} \
+        root@${DEPLOY_NODE_HOST} bash << EOFREMOTE
+      set -e
+      cd ${CORAX_DIR}
+
+      echo "Переход в директорию ${CORAX_DIR}"
+      echo "Текущая директория: \$(pwd)"
+      echo ""
+
+      cp files/inventory.j2 files/inventory.ini
+      ansible-playbook -i files/inventory.ini lvm.yaml -l kafka
+
+      echo "--- Запуск ansible-playbook ---"
+      export ANSIBLE_CONFIG=./ansible.cfg
+      ansible-playbook -i inventory.ini playbook.yaml
+
+      echo ""
+      echo "✓ Ansible playbook успешно выполнен"
+      EOFREMOTE
+
+    - echo ""
+
+    # === Запуск развертывания компонентов Corax ===
+    - echo "=== Запуск развертывания компонентов Corax ==="
+    - |
+      ssh ${SSH_OPTS} \
+        root@${DEPLOY_NODE_HOST} bash << EOFREMOTE
+      set -e
+      cd /pub/corax
+
+      echo "Переход в директорию /pub/corax"
+      echo "Текущая директория: \$(pwd)"
+      echo ""
+
+      echo "--- 1/6: Запуск prepare_corax.yaml ---"
+      ansible-playbook -i inventories/inventory.ini prepare_corax.yaml
+      echo "✓ prepare_corax.yaml завершен"
+      echo ""
+
+      echo "--- 2/6: Запуск kafka-zookeeper-SE.yml (enabled_service) ---"
+      ansible-playbook -i inventories/inventory.ini playbooks/kafka-zookeeper-SE.yml -t enabled_service
+      echo "✓ kafka-zookeeper-SE.yml (enabled_service) завершен"
+      echo ""
+
+      echo "--- 3/6: Запуск kafka-zookeeper-SE.yml ---"
+      ansible-playbook -i inventories/inventory.ini playbooks/kafka-zookeeper-SE.yml
+      echo "✓ kafka-zookeeper-SE.yml завершен"
+      echo ""
+
+      echo "--- 4/6: Запуск crxsr.yml ---"
+      ansible-playbook -i inventories/inventory.ini playbooks/crxsr.yml -t root,install,start
+      echo "✓ crxsr.yml завершен"
+      echo ""
+
+      echo "--- 5/6: Запуск crxui.yml ---"
+      ansible-playbook -i inventories/inventory.ini playbooks/crxui.yml -t root,install
+      echo "✓ crxui.yml завершен"
+      echo ""
+
+      echo "--- 6/6: Запуск post_install_corax.yaml ---"
+      ansible-playbook -i inventories/inventory.ini post_install_corax.yaml
+      echo "✓ post_install_corax.yaml завершен"
+      echo ""
+
+      echo "✓ Все playbook'и развертывания Corax успешно выполнены!"
+      EOFREMOTE
+
+    - echo ""
+
+    # === Итоговая информация ===
+    - echo "=========================================="
+    - echo "РАЗВЕРТЫВАНИЕ КЛАСТЕРА CORAX ЗАВЕРШЕНО"
+    - echo "=========================================="
+    - echo ""
+    - echo "✓ Архив corax_prepare.zip скопирован с runner"
+    - echo "✓ Архив распакован в ${CORAX_DIR}"
+    - echo "✓ Конфигурационные файлы заменены из CI/CD"
+    - echo "✓ SSH ключи настроены"
+    - echo "✓ Sudoers настроен на всех нодах кластера"
+    - echo "✓ Playbook.yaml выполнен (подготовка дистрибутивов)"
+    - echo "✓ prepare_corax.yaml выполнен"
+    - echo "✓ kafka-zookeeper-SE.yml выполнен (enabled_service + полная установка)"
+    - echo "✓ crxsr.yml выполнен (установка и запуск)"
+    - echo "✓ crxui.yml выполнен (установка)"
+    - echo "✓ post_install_corax.yaml выполнен"
+    - echo ""
+    - echo "Кластер Corax успешно развернут!"
+    - echo ""
+
+  when: manual  # Требует ручного подтверждения для безопасности
+
+  artifacts:
+    name: "corax-deployment-${CI_PIPELINE_ID}"
+    paths:
+      - ${RUNNER_WORKDIR}/
+    expire_in: 1 week

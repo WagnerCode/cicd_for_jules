@@ -1,0 +1,119 @@
+# ============================================================================
+# GitLab CI/CD Templates
+# Переиспользуемые шаблоны для jobs
+# ============================================================================
+
+# === Общие настройки для всех jobs ===
+.common_job:
+  # tags:
+  #   - shell  # Используем shell runner
+  retry:
+    max: 1
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+
+# === Комбинированный шаблон для config_generation ===
+.config_generation_template:
+  # tags:
+  #   - shell
+  retry:
+    max: 1
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+  before_script:
+    - echo "=== Проверка окружения GitLab Runner (shell executor) ==="
+    - echo "Runner - ${CI_RUNNER_DESCRIPTION}"
+    - echo "Project - ${CI_PROJECT_NAME}"
+    - echo "Pipeline ID - ${CI_PIPELINE_ID}"
+    - echo "Current User - $(whoami)"
+    - echo "Current Directory - $(pwd)"
+    - echo ""
+    - echo "--- Проверка необходимых утилит ---"
+    - which python3 || (echo "ERROR - python3 not found" && exit 1)
+    - which ssh || (echo "ERROR - ssh not found" && exit 1)
+    - which scp || (echo "ERROR - scp not found" && exit 1)
+    - echo "✓ Все необходимые утилиты установлены"
+    - echo ""
+    - echo "=== Проверка обязательных переменных ==="
+    - test -n "$DEPLOY_NODE_HOST" || (echo "ERROR - DEPLOY_NODE_HOST не установлена" && exit 1)
+    - echo "✓ DEPLOY_NODE_HOST - ${DEPLOY_NODE_HOST}"
+    - test -n "$SSH_PRIVATE_KEY" || (echo "ERROR - SSH_PRIVATE_KEY не установлена" && exit 1)
+    - echo "✓ SSH_PRIVATE_KEY - установлен"
+    - test -n "$CORAX_NODES" || (echo "ERROR - CORAX_NODES не установлена" && exit 1)
+    - echo "✓ CORAX_NODES - установлен и валиден"
+    - echo "✓ Все обязательные переменные установлены"
+    - echo ""
+    - echo "=== Проверка наличия архива Corax на runner ==="
+    - echo "Директория - ${DISTRIBS_DIR}"
+    - echo "Архив - ${CORAX_ARCHIVE}"
+    - echo "Полный путь - ${DISTRIBS_DIR}/${CORAX_ARCHIVE}"
+    - echo ""
+    - test -d "${DISTRIBS_DIR}" || (echo "ERROR - Директория ${DISTRIBS_DIR} не существует на runner" && exit 1)
+    - echo "✓ Директория ${DISTRIBS_DIR} существует"
+    - echo ""
+    - echo "--- Содержимое ${DISTRIBS_DIR} ---"
+    - ls -lh ${DISTRIBS_DIR}/ || true
+    - echo ""
+    - test -f "${DISTRIBS_DIR}/${CORAX_ARCHIVE}" || (echo "ERROR - Архив ${CORAX_ARCHIVE} не найден в ${DISTRIBS_DIR}" && exit 1)
+    - echo "✓ Архив найден - ${CORAX_ARCHIVE}"
+    - du -h ${DISTRIBS_DIR}/${CORAX_ARCHIVE}
+    - echo ""
+    - echo "--- Проверка целостности архива ---"
+    - unzip -t ${DISTRIBS_DIR}/${CORAX_ARCHIVE} > /dev/null 2>&1 || (echo "ERROR - Архив поврежден или имеет неверный формат" && exit 1)
+    - echo "✓ Архив корректен"
+    - echo ""
+    - echo "--- Содержимое архива (preview) ---"
+    - unzip -l ${DISTRIBS_DIR}/${CORAX_ARCHIVE} | head -30
+    - echo ""
+    - echo "✓ Архив Corax готов к использованию"
+    - echo ""
+
+# === Комбинированный шаблон для node_preparation ===
+.node_preparation_template:
+  # tags:
+  #   - shell
+  retry:
+    max: 1
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+  before_script:
+    - echo "=== Проверка окружения GitLab Runner (shell executor) ==="
+    - echo "Runner - ${CI_RUNNER_DESCRIPTION}"
+    - echo "Project - ${CI_PROJECT_NAME}"
+    - echo "Pipeline ID - ${CI_PIPELINE_ID}"
+    - echo "Current User - $(whoami)"
+    - echo "Current Directory - $(pwd)"
+    - echo ""
+    - echo "--- Проверка необходимых утилит ---"
+    - which python3 || (echo "ERROR - python3 not found" && exit 1)
+    - which ssh || (echo "ERROR - ssh not found" && exit 1)
+    - which scp || (echo "ERROR - scp not found" && exit 1)
+    - echo "✓ Все необходимые утилиты установлены"
+    - echo ""
+    - echo "=== Проверка обязательных переменных ==="
+    - test -n "$DEPLOY_NODE_HOST" || (echo "ERROR - DEPLOY_NODE_HOST не установлена" && exit 1)
+    - echo "✓ DEPLOY_NODE_HOST - ${DEPLOY_NODE_HOST}"
+    - test -n "$SSH_PRIVATE_KEY" || (echo "ERROR - SSH_PRIVATE_KEY не установлена" && exit 1)
+    - echo "✓ SSH_PRIVATE_KEY - установлен"
+    - test -n "$CORAX_NODES" || (echo "ERROR - CORAX_NODES не установлена" && exit 1)
+    - echo "✓ CORAX_NODES - установлен и валиден"
+    - echo "✓ Все обязательные переменные установлены"
+        - echo "=== Настройка SSH окружения ==="
+    - test -n "$SSH_PRIVATE_KEY" || (echo "ERROR - Переменная SSH_PRIVATE_KEY не установлена" && exit 1)
+    - echo "Копирование SSH ключа из $SSH_PRIVATE_KEY в ~/.ssh/id_rsa..."
+    - cp "$SSH_PRIVATE_KEY" ~/.ssh/id_rsa_corax
+    - chmod 600 ~/.ssh/id_rsa_corax
+    - echo "Проверка формата ключа..."
+    - head -1 ~/.ssh/id_rsa_corax | grep -q "BEGIN" || (echo "ERROR - SSH ключ имеет неверный формат" && exit 1)
+    - echo "Генерация публичного ключа..."
+    - ssh-keygen -y -f ~/.ssh/id_rsa_corax > ~/.ssh/id_rsa_corax.pub 2>&1 || (echo "ERROR - Не удалось сгенерировать публичный ключ из приватного. Проверьте формат ключа в переменной SSH_PRIVATE_KEY" && exit 1)
+    - echo "✓ SSH ключи настроены"
+    - echo ""
+    - echo "--- Публичный ключ (для проверки) ---"
+    - cat ~/.ssh/id_rsa_corax
+    - echo ""
+
+    

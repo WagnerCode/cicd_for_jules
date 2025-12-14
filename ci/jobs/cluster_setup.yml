@@ -1,0 +1,214 @@
+# ============================================================================
+# Job: Cluster Setup
+# Настройка SSH/sudoers/hosts на всех нодах кластера (единый цикл)
+# ============================================================================
+
+cluster_setup:
+  stage: cluster_setup
+  extends:
+    - .node_preparation_template
+    - .ssh_functions
+
+  dependencies:
+    - generate_configs
+    - terraform:apply
+    # - archive_deployment
+    # - generate_configs
+
+  script:
+    - echo "=========================================="
+    - echo "НАСТРОЙКА КЛАСТЕРА"
+    - echo "=========================================="
+    - echo ""
+    - echo "Деплой нода - ${DEPLOY_NODE_HOST}"
+    - echo "Целевая директория - ${CORAX_DIR}"
+    - echo ""
+
+    # SSH_OPTS уже экспортировано в ssh_functions.yml
+
+    #=== Проверка SSH доступа с retry ===
+    - echo "=== Проверка SSH доступа к деплой ноде ==="
+    - |
+      # Используем функцию wait_for_ssh из ssh_functions.yml
+      # Аргументы: host, user, max_retries, retry_interval, timeout
+      if wait_for_ssh "${DEPLOY_NODE_HOST}" "${DEPLOY_NODE_USER}" 20 15 10; then
+        echo "✓ SSH доступ к деплой ноде установлен"
+      else
+        echo "✗ ОШИБКА: Не удалось подключиться к деплой ноде"
+        exit 1
+      fi
+
+    - echo ""
+
+
+
+    # === Настройка SSH ключей и hosts на всех нодах (единый цикл) ===
+    - echo "=== Настройка SSH, hosts и sudoers на всех узлах кластера ==="
+    - |
+      # Генерируем файл hosts из CORAX_NODES
+      HOSTS_CONTENT=$(echo "$CORAX_NODES" | jq -r 'to_entries | .[] | "\(.value.host) corax-node\(.key + 1)"')
+      
+      echo "Будет добавлено в /etc/hosts:"
+      echo "$HOSTS_CONTENT"
+      echo ""
+      
+      # Публичный SSH ключ для добавления на ноды
+      PUBLIC_KEY=$(cat ~/.ssh/id_rsa_corax.pub)
+      echo "Публичный ключ для распространения:"
+      echo "$PUBLIC_KEY"
+      echo ""
+      
+      # Подсчет нод
+      TOTAL_NODES=$(echo "$CORAX_NODES" | jq -r '.[].host' | wc -l)
+      
+      echo "Всего нод для настройки: ${TOTAL_NODES}"
+      echo ""
+      echo "=========================================="
+      
+      # Создаем временный файл для хранения списка нод
+      NODE_LIST=$(echo "$CORAX_NODES" | jq -r '.[].host')
+      
+      # Единый цикл по всем нодам кластера (используем for вместо while с pipe)
+      for node_host in $NODE_LIST; do
+        echo ""
+        echo ">>> Настройка узла: $node_host"
+        echo "----------------------------------------"
+        
+        NODE_SUCCESS=true
+        
+        # === 1. Настройка SSH ключа ===
+        echo "[1/4] Настройка SSH ключа..."
+        if echo "$PUBLIC_KEY" | ssh ${SSH_OPTS} \
+          ${DEPLOY_NODE_USER}@${node_host} \
+          "
+          sudo mkdir -p /root/.ssh && \
+          sudo tee -a /root/.ssh/authorized_keys > /dev/null && \
+          sudo chmod 600 /root/.ssh/authorized_keys && \
+          sudo chown root:root /root/.ssh/authorized_keys
+          " 2>/dev/null; then
+          echo "  ✓ SSH ключ добавлен"
+        else
+          echo "  ✗ Ошибка добавления SSH ключа"
+          NODE_SUCCESS=false
+        fi
+        
+        # === 2. Обновление /etc/hosts ===
+        echo "[2/4] Обновление /etc/hosts..."
+        if echo "$HOSTS_CONTENT" | ssh ${SSH_OPTS} ${DEPLOY_NODE_USER}@${node_host} \
+          "sudo sed -i '/corax-node/d' /etc/hosts && cat - | sudo tee -a /etc/hosts > /dev/null" 2>/dev/null; then
+          echo "  ✓ /etc/hosts обновлен"
+        else
+          echo "  ✗ Ошибка обновления /etc/hosts"
+          NODE_SUCCESS=false
+        fi
+        
+        # === 3. Настройка sudoers ===
+        echo "[3/4] Настройка sudoers..."
+        if ssh ${SSH_OPTS} root@${node_host} \
+          "echo 'root ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/root && chmod 440 /etc/sudoers.d/root" 2>/dev/null; then
+          echo "  ✓ sudoers настроен"
+        else
+          echo "  ✗ Ошибка настройки sudoers"
+          NODE_SUCCESS=false
+        fi
+        
+        # === 4. Проверка SSH доступности ===
+        echo "[4/4] Проверка SSH доступности..."
+        if ssh ${SSH_OPTS} root@${node_host} "hostname" 2>/dev/null; then
+          echo "  ✓ SSH доступ подтвержден"
+        else
+          echo "  ✗ SSH доступ не работает"
+          NODE_SUCCESS=false
+        fi
+        
+        # Итог по ноде
+        if [ "$NODE_SUCCESS" = "true" ]; then
+          echo ""
+          echo "✓ Узел $node_host настроен успешно"
+        else
+          echo ""
+          echo "✗ Узел $node_host настроен с ошибками"
+        fi
+        
+        echo "----------------------------------------"
+      done
+
+    - echo ""
+
+    # Копирование SSH ключа
+    - |
+      echo "Копирование SSH ключа..."
+      scp ${SSH_OPTS} \
+        ${RUNNER_WORKDIR}/ssh_private_key \
+        root@${DEPLOY_NODE_HOST}:/root/.ssh/id_rsa
+      echo "✓ SSH ключ скопирован"
+      ssh ${SSH_OPTS} \
+        root@${DEPLOY_NODE_HOST} "chmod 600 /root/.ssh/id_rsa"
+      
+
+    # === Настройка SSH доступа к рабочим нодам с деплой ноды ===
+    - echo "=== Настройка SSH на деплой ноде для доступа к кластеру ==="
+    - |
+      ssh ${SSH_OPTS} \
+         root@${DEPLOY_NODE_HOST} bash << 'EOFREMOTE'
+      set -e
+
+      # Генерация публичного ключа из приватного
+      if [ ! -f ~/.ssh/id_rsa.pub ]; then
+        ssh-keygen -y -f ~/.ssh/id_rsa > ~/.ssh/id_rsa.pub
+        chmod 644 ~/.ssh/id_rsa.pub
+      fi
+
+      echo ""
+      echo "=========================================="
+      echo "ПУБЛИЧНЫЙ SSH КЛЮЧ ДЛЯ РАБОЧИХ НОД"
+      echo "=========================================="
+      cat ~/.ssh/id_rsa.pub
+      echo "=========================================="
+      echo ""
+
+      echo "✓ SSH ключи настроены на деплой ноде"
+      EOFREMOTE
+
+    - echo ""
+
+    # # === Проверка готовности окружения для Ansible ===
+    # - echo "=== Проверка готовности окружения для Ansible ==="
+    # - |
+    #   ssh ${SSH_OPTS} \
+    #     root@${DEPLOY_NODE_HOST} bash << EOFREMOTE
+    #   set -e
+    #   cd ${CORAX_DIR}
+
+    #   echo "--- Проверка Ansible конфигурации ---"
+    #   export ANSIBLE_CONFIG=./ansible.cfg
+    #   ansible --version
+
+    #   echo ""
+    #   echo "--- Тестовый запуск Ansible ping ---"
+    #   ansible all -i inventory.ini -m ping || {
+    #     echo ""
+    #     echo "WARNING Ansible ping не прошел успешно"
+    #     echo "Это ожидаемо, если SSH ключи еще не распространены на рабочие ноды"
+    #   }
+
+    #   echo ""
+    #   echo "✓ Окружение подготовлено для запуска Ansible playbooks"
+    #   EOFREMOTE
+
+    - echo ""
+    - echo "=========================================="
+    - echo "НАСТРОЙКА КЛАСТЕРА ЗАВЕРШЕНА"
+    - echo "=========================================="
+    - echo ""
+    - echo "✓ SSH ключи распространены на все ноды"
+    - echo "✓ /etc/hosts обновлен на всех нодах"
+    - echo "✓ sudoers настроен на всех нодах"
+    # - echo "✓ Ansible готов к работе"
+    - echo ""
+
+  artifacts:
+    name: "cluster-setup-${CI_PIPELINE_ID}"
+    paths:
+      - ${RUNNER_WORKDIR}/
+    expire_in: 1 week

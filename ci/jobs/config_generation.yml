@@ -1,0 +1,80 @@
+# ============================================================================
+# Job: Config Generation
+# Генерация только конфигурационных файлов (без распаковки архива)
+# ============================================================================
+
+generate_configs:
+  stage: config_generation
+  extends: .config_generation_template
+
+  script:
+    - echo "=========================================="
+    - echo "ГЕНЕРАЦИЯ КОНФИГУРАЦИОННЫХ ФАЙЛОВ"
+    - echo "=========================================="
+    - echo ""
+    - echo "=== Валидация режима безопасности ==="
+    - bash ci/scripts/validate_security_mode.sh
+    - echo ""
+    - echo "=== Подготовка директории для конфигов ==="
+    - rm -rf ${RUNNER_WORKDIR}
+    - mkdir -p ${RUNNER_WORKDIR}
+    - echo "✓ Директория создана - ${RUNNER_WORKDIR}"
+    - echo ""
+    - echo "=== Генерация inventory.ini ==="
+    - chmod +x ci/scripts/generate_inventory.py
+    - python3 ci/scripts/generate_inventory.py > ${RUNNER_WORKDIR}/inventory.ini
+    - echo ""
+    - echo "--- Сгенерированный inventory.ini (полный, для рабочих нод) ---"
+    - cat ${RUNNER_WORKDIR}/inventory.ini
+    - echo ""
+    - echo "=== Генерация inventory_deploy.ini ==="
+    - chmod +x ci/scripts/generate_inventory_deploy.py
+    - python3 ci/scripts/generate_inventory_deploy.py > ${RUNNER_WORKDIR}/inventory_deploy.ini
+    - echo ""
+    - echo "--- Сгенерированный inventory_deploy.ini (только деплой нода) ---"
+    - cat ${RUNNER_WORKDIR}/inventory_deploy.ini
+    - echo ""
+    - echo "=== Генерация group_vars/all.yaml ==="
+    - chmod +x ci/scripts/generate_group_vars.sh
+    - bash ci/scripts/generate_group_vars.sh ${RUNNER_WORKDIR}
+    - echo ""
+    - echo "--- Содержимое group_vars/all.yaml ---"
+    - cat ${RUNNER_WORKDIR}/group_vars/all.yaml
+    - echo ""
+    - echo "=== Подготовка SSH ключа ==="
+    - cp "$SSH_PRIVATE_KEY" ${RUNNER_WORKDIR}/ssh_private_key
+    - chmod 600 ${RUNNER_WORKDIR}/ssh_private_key
+    - echo "✓ SSH ключ подготовлен"
+    - echo ""
+    - echo "=== Генерация ansible.cfg ==="
+    - chmod +x ci/scripts/generate_ansible_cfg.sh
+    - bash ci/scripts/generate_ansible_cfg.sh ${RUNNER_WORKDIR}
+    - cat ${RUNNER_WORKDIR}/ansible.cfg
+    - echo ""
+    - echo "=== Создание манифеста конфигурации ==="
+    - chmod +x ci/scripts/generate_manifest.sh
+    - bash ci/scripts/generate_manifest.sh ${RUNNER_WORKDIR}
+    - echo ""
+    - echo "=== Подготовка конфигурации безопасности ==="
+    - bash ci/scripts/prepare_security_config.sh
+    - echo ""
+    - echo "=========================================="
+    - echo "ГЕНЕРАЦИЯ ЗАВЕРШЕНА"
+    - echo "=========================================="
+    - echo ""
+    - echo "Сгенерированные конфигурационные файлы:"
+    - ls -lh ${RUNNER_WORKDIR}/
+    - echo ""
+    - echo "Конфигурация безопасности:"
+    - ls -lh ${RUNNER_WORKDIR}/security_config/
+    - echo ""
+    - echo "✓ Конфиги готовы для развертывания"
+    - 'echo "✓ Режим безопасности: ${CLUSTER_SECURITY_MODE}"'
+    - echo ""
+
+  artifacts:
+    name: "corax-configs-${CI_PIPELINE_ID}"
+    paths:
+      - ${RUNNER_WORKDIR}/
+    expire_in: 1 week
+

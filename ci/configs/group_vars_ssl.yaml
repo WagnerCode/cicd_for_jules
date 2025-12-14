@@ -1,0 +1,65 @@
+tmp_dir: /tmp/installer # путь к временной директории на конечных серверах
+wait_for_start: 120 # время в секундах на корректный старт приложения (падает с ошибкой при превышении)
+customJavaPath: false # абсолютный путь к используемой java (false для использования java из PATH)
+security: SSL__ZK_mTLS_WITH_AUTH__KAFKA_SSL_WITH_AUTH # протокол безопасности
+kafka_user: kafka # имя пользователя, от имени которого запускается Kafka
+kafka_group: kafka # имя группы от имени которой запускается kafka
+zookeeper_user: kafka # имя пользователя, от имени которого запускается ZooKeeper
+zookeeper_group: kafka # имя группы от имени которой запускается ZooKeeper
+enabled_service: true # создание сервиса и настройка сервиса ../helper/create_service.yml
+
+
+kafka:
+    distr: distrib.zip # имя zip архива с дистрибутивом, размещенного в ./ansible/files/
+    installdir: /pub/opt/Apache/kafka # абсолютный путь на конечном сервере к приложению
+    logdir: /pub/opt/Apache/kafka/logs # абсолютный путь на конечном сервере к логам приложения
+    datadir: /pub/KAFKADATA # абсолютный путь на конечном сервере к данным приложения
+    cleanLog: true # очистить путь к логам при установке
+    cleanData: true # очистить путь к данным при установке (true если данные не нужны)
+    trustStorePath: "/pub/opt/Apache/kafka/ssl/kafka.truststore.jks" # путь от inventories/_стенд_/ до файла с trustStore (или абсолютный на сервере при needUploadJks: false)
+    trustStorePassword: "changeit" # пароль от trustStore
+    keyStorePath: "/pub/opt/Apache/kafka/ssl/kafka.keystore.jks" # путь от inventories/_стенд_/ до файла с keyStore (или абсолютный на сервере при needUploadJks: false)
+    keyStorePassword: "changeit" # пароль от keyStore
+    keyPassword: "changeit" # пароль от ключа в хранилище
+zookeeper:
+    distr: distrib.zip # Имя zip архива с дистрибутивом, размещенного в ./ansible/files/
+    installdir: /pub/opt/Apache/kafka # абсолютный путь на конечном сервере к приложению
+    logdir: /pub/opt/Apache/kafka/logs # абсолютный путь на конечном сервере к логам приложения
+    datadir: /pub/zookeeper # абсолютный путь на конечном сервере к данным приложения
+    cleanLog: true # очистить путь к логам при установке
+    cleanData: false # очистить путь к данным при установке (true если данные не нужны)
+    trustStorePath: "/pub/opt/Apache/kafka/ssl/kafka.truststore.jks" # путь от inventories/_стенд_/ до файла с trustStore (или абсолютный на сервере при needUploadJks: false)
+    trustStorePassword: "changeit" # пароль от trustStore
+    keyStorePath: "/pub/opt/Apache/kafka/ssl/kafka.keystore.jks" # путь от inventories/_стенд_/ до файла с keyStore (или абсолютный на сервере при needUploadJks: false)
+    keyStorePassword: "changeit" # пароль от keyStore
+
+crxsr:
+  distr: distrib.zip # имя zip архива с дистрибутивом, размещенного в ./ansible/files/
+  installdir: /pub/opt/Apache/kafka # абсолютный путь на конечном сервере к приложению
+  cleanLog: false # очистить путь к логам при установке
+  prop_var:
+   "server_port": 8081 # порт на котором работает CRXSR
+  sr_user:     # пользователи в schema-registry
+    admin:
+      psw: "admin"
+      role: 'ROLE_ADMIN'
+    user:
+      psw: "user"
+      role: 'ROLE_USER'
+
+crxui:
+  server.port: 9090 # порт на котором работает CRXUI
+  installdir: /pub/opt/Apache/kafka
+  ui_user:                  # словарь с пользователями, паролями и ролями в schema-registry
+    admin:                   # имя пользователя
+      psw: "admin"   # пароль пользователя
+      role: 'ROLE_ADMIN'       # роль пользователя
+    user:
+      psw: "user"
+      role: 'ROLE_USER'
+    viewer:
+      psw: "viewer"
+      role: 'ROLE_VIEWER'
+    developer:
+      psw: "developer"
+      role: 'ROLE_DEVELOPER'

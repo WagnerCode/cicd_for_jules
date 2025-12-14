@@ -1,0 +1,113 @@
+jam:
+  stage: jam
+  extends: .common_job
+  variables:
+    SSH_TIMEOUT: "10"  # значение по умолчанию в секундах
+  dependencies: 
+    - corax_deployment
+    - generate_configs
+  
+  script:
+    - echo "JAM"
+    - echo "Проверка доступности inventory.ini:"
+    - ls -lh ${RUNNER_WORKDIR}/
+    - mkdir -p ${RUNNER_WORKDIR}/group_vars
+    - cat ${RUNNER_WORKDIR}/inventory.ini
+    - |
+      echo "project_id: ${project_id}" > ${RUNNER_WORKDIR}/group_vars/secrets.yaml
+      echo "log_group_id: ${log_group_id}" >> ${RUNNER_WORKDIR}/group_vars/secrets.yaml
+      echo "sa_journal_api_key: ${sa_journal_api_key}" >> ${RUNNER_WORKDIR}/group_vars/secrets.yaml
+      echo "sa_audit_api_key: ${sa_audit_api_key}" >> ${RUNNER_WORKDIR}/group_vars/secrets.yaml
+      chmod 600 ${RUNNER_WORKDIR}/group_vars/secrets.yaml
+      echo "✓ secrets.yaml создан"
+
+      scp -i ~/.ssh/id_rsa_corax \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR \
+        -o ConnectTimeout=${SSH_TIMEOUT:-10} \
+        -o BatchMode=yes \
+        ${RUNNER_WORKDIR}/inventory.ini \
+        root@${DEPLOY_NODE_HOST}:/corax/dev_inventory/hosts.ini
+    - |
+      scp -i ~/.ssh/id_rsa_corax \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR \
+        -o ConnectTimeout=${SSH_TIMEOUT:-10} \
+        -o BatchMode=yes \
+        ${RUNNER_WORKDIR}/group_vars/secrets.yaml \
+        root@${DEPLOY_NODE_HOST}:/corax/dev_inventory/group_vars/all/secrets.yaml
+
+    - |
+      echo "home_path: .." > ${RUNNER_WORKDIR}/group_vars/corax.yaml
+      echo "node_exporter_path_dst: /opt/prometheus-node_exporter/" >> ${RUNNER_WORKDIR}/group_vars/corax.yaml
+      echo "kafka_conf_path_dst: /pub/opt/Apache/kafka/config/server.properties" >> ${RUNNER_WORKDIR}/group_vars/corax.yaml
+      echo "zookeeper_conf_path_dst: /pub/opt/Apache/kafka/config/zookeeper.properties" >> ${RUNNER_WORKDIR}/group_vars/corax.yaml
+      echo "vmagent_path_dst: /opt/vmagent" >> ${RUNNER_WORKDIR}/group_vars/corax.yaml
+      echo "vmagent_service_maxDiskUsagePerURL: 10737418240" >> ${RUNNER_WORKDIR}/group_vars/corax.yaml
+      echo "vmagent_service_url: https://monitoring.api.cloud.ru/v2/project/${project_id}/prometheus/api/v1/write" >> ${RUNNER_WORKDIR}/group_vars/corax.yaml
+      echo "vmagent_service_clientID: ${vmagent_service_clientID}" >> ${RUNNER_WORKDIR}/group_vars/corax.yaml
+      echo "vmagent_service_clientSecret: ${vmagent_service_clientSecret}" >> ${RUNNER_WORKDIR}/group_vars/corax.yaml
+      echo "vmagent_service_tokenUrl: https://auth.iam.sbercloud.ru/auth/system/openid/token" >> ${RUNNER_WORKDIR}/group_vars/corax.yaml
+    
+      scp -i ~/.ssh/id_rsa_corax \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR \
+        -o ConnectTimeout=${SSH_TIMEOUT:-10} \
+        -o BatchMode=yes \
+        ${RUNNER_WORKDIR}/group_vars/corax.yaml \
+        root@${DEPLOY_NODE_HOST}:/pub/ansible_corax_json_exporter/vars/corax.yaml
+    
+      echo "[general]" > ${RUNNER_WORKDIR}/group_vars/inventory_for_mon.ini
+      tail -n +2 ${RUNNER_WORKDIR}/inventory.ini >> ${RUNNER_WORKDIR}/group_vars/inventory_for_mon.ini
+      sed -i 's/\[zookeeper\]/[corax_zookeeper]/' ${RUNNER_WORKDIR}/group_vars/inventory_for_mon.ini
+      echo "hosts.ini создан"
+
+      scp -i ~/.ssh/id_rsa_corax \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR \
+        -o ConnectTimeout=${SSH_TIMEOUT:-10} \
+        -o BatchMode=yes \
+        ${RUNNER_WORKDIR}/group_vars/inventory_for_mon.ini \
+        root@${DEPLOY_NODE_HOST}:/pub/ansible_corax_json_exporter/hosts.ini   
+
+    
+    
+    - echo "=== Запуск Ansible playbook для подготовки Corax ==="
+    - |
+      ssh -i ~/.ssh/id_rsa_corax \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR \
+        -o ConnectTimeout=${SSH_TIMEOUT:-10} \
+        -o BatchMode=yes \
+        root@${DEPLOY_NODE_HOST} bash <<'EOFREMOTE'
+      set -e
+      cd /corax/dev_inventory
+      echo "Текущая директория $(pwd)"
+      echo "Текущий пользователь $(whoami)"
+      export ANSIBLE_CONFIG=./ansible.cfg
+      export ANSIBLE_HOST_KEY_CHECKING=False
+      ansible-playbook -i hosts.ini playbooks/audit.yaml -l kafka
+      ansible-playbook -i hosts.ini playbooks/journal.yaml -l kafka,zookeeper,crxsr,crxui
+      echo "✓ Ansible playbooks Ж и А выполнены"
+
+      cd /pub/ansible_corax_json_exporter
+      sed -n "/- job_name: 'kafka'/,\$p" templates/vmagent_kafka_conf.j2 > /tmp/kafka_job.yaml
+      cat /tmp/kafka_job.yaml >> templates/vmagent_zookeeper_conf.j2
+
+      ansible-playbook -i hosts.ini tasks/corax_redos.yaml -l general,corax_zookeeper
+      echo "vmagent_zookeeper_conf.j2 отредактирован -> Ansible playbook M выполнен"
+      
+      EOFREMOTE
+    - echo "✓ Деплой завершен"
+
+  when: manual
+
+  artifacts:
+    paths:
+      - ${RUNNER_WORKDIR}/group_vars/secrets.yaml
+    expire_in: 1 hour

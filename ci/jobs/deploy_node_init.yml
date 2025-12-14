@@ -1,0 +1,99 @@
+# ============================================================================
+# Job: Deploy Node Init
+# Инициализация деплой ноды: проверка SSH, установка пакетов, настройка SSH
+# ============================================================================
+
+deploy_node_init:
+  stage: deploy_node_init
+  extends:
+    - .node_preparation_template
+    - .ssh_functions
+
+  dependencies:
+    - cluster_setup
+    - generate_configs
+    # - terraform:apply
+
+  script:
+    - echo "=========================================="
+    - echo "ИНИЦИАЛИЗАЦИЯ ДЕПЛОЙ НОДЫ"
+    - echo "=========================================="
+    - echo ""
+    - echo "Деплой нода - ${DEPLOY_NODE_HOST}"
+    - echo "Пользователь - ${DEPLOY_NODE_USER}"
+    - echo ""
+
+    # === Проверка SSH доступа с retry ===
+    # - echo "=== Проверка SSH доступа к деплой ноде ==="
+    # - |
+    #   # Используем функцию wait_for_ssh из ssh_functions.yml
+    #   # Аргументы: host, user, max_retries, retry_interval, timeout
+    #   if wait_for_ssh "${DEPLOY_NODE_HOST}" "${DEPLOY_NODE_USER}" 20 15 10; then
+    #     echo "✓ SSH доступ к деплой ноде установлен"
+    #   else
+    #     echo "✗ ОШИБКА: Не удалось подключиться к деплой ноде"
+    #     exit 1
+    #   fi
+
+    # - echo ""
+
+    #=== Установка необходимых пакетов на деплой ноде ===
+    - echo "=== Установка необходимых пакетов на деплой ноде ==="
+    - |
+      ssh ${SSH_OPTS} \
+        root@${DEPLOY_NODE_HOST} bash <<'EOFREMOTE'
+      set -e
+
+      echo "--- Проверка версии ОС ---"
+      if [ -f /etc/altlinux-release ]; then
+        cat /etc/altlinux-release
+      else
+        echo "WARNING Это не ALT Linux! Файл /etc/altlinux-release не найден"
+        cat /etc/os-release 2>/dev/null || echo "Информация об ОС недоступна"
+      fi
+
+      echo ""
+      echo "--- Обновление списка пакетов ---"
+      sudo apt-get update -q || {
+        echo "WARNING apt-get update завершился с предупреждениями"
+      }
+
+      echo ""
+      echo "--- Установка базовых пакетов ---"
+       
+
+      echo "Установка PACKAGES"
+        sudo apt-get install -y \
+          ansible \
+          unzip \
+          sshpass \
+          python3 \
+          python3-module-pip \
+          git \
+          curl \
+          wget \
+          tree
+
+      echo ""
+      echo "--- Проверка установленных версий ---"
+      echo "Ansible $(ansible --version 2>&1 | head -1)"
+      echo "Python $(python3 --version 2>&1)"
+      echo "Git $(git --version 2>&1)"
+      echo "Unzip $(unzip -v 2>&1 | head -1)"
+
+      echo ""
+      echo "✓ Все необходимые пакеты успешно установлены"
+      EOFREMOTE
+
+    - echo ""
+    - echo "=========================================="
+    - echo "ИНИЦИАЛИЗАЦИЯ ДЕПЛОЙ НОДЫ ЗАВЕРШЕНА"
+    - echo "=========================================="
+    - echo ""
+
+
+  artifacts:
+    name: "deploy-node-init-${CI_PIPELINE_ID}"
+    paths:
+      - ${RUNNER_WORKDIR}/
+    expire_in: 1 week

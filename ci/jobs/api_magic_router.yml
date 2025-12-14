@@ -1,0 +1,11 @@
+api:magic-router:
+  stage: api:magic-router
+  extends: .common_job
+  dependencies:
+    - generate_configs
+  script:
+    - echo "=== Adding routes in Magic Router ==="
+    - which jq || (apt-get update && apt-get install -y jq) || (apk add jq) || echo "WARNING jq not found and could not install"
+
+    - chmod +x ci/scripts/add_route_cloud_paas.sh
+    - ./ci/scripts/add_route_cloud_paas.sh

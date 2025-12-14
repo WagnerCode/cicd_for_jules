@@ -1,0 +1,57 @@
+terraform:apply:
+  stage: terraform
+  extends: .common_job
+  variables:
+    # Define variables needed for the job
+    # Most are inherited from global variables.yml or env
+    TF_ROOT: "terraform/"
+  
+  script:
+    - echo "=== Terraform Stage ==="
+    - export PYTHONPATH=$PYTHONPATH:$(pwd)
+    
+    # 1. Generate terraform.tfvars
+    - echo "Generating terraform.tfvars..."
+    - python3 terraform-ci/scripts/generate_tfvars.py
+
+    - cd $TF_ROOT
+    - chmod +x 1_get_tofu.sh
+    - chmod +x 3_get_cloudru_provider.sh
+
+    
+    - bash 1_get_tofu.sh
+    - bash 3_get_cloudru_provider.sh
+
+    # 2. Check generated file
+    - echo "Checking terraform.tfvars..."
+    - cat terraform.tfvars
+    
+    # 3. Initialize OpenTofu/Terraform
+    - echo "Initializing OpenTofu..."
+    
+    # Assuming 'tofu' is in PATH or we need to download it.
+    # The prototype used local scripts to download.
+    # I will assume 'tofu' is available or alias it if 'terraform' is present.
+    - export TF_LOG=TRACE
+    - export TF_LOG_PATH=./terraform-debug.log
+    - echo "Using ./tofu"
+    
+    - ./tofu init
+    
+    # 4. Validate
+    - echo "Validating configuration..."
+    - ./tofu validate
+    
+    # 5. Plan
+    - echo "Planning..."
+    - ./tofu plan
+    
+    # 6. Apply
+    - echo "Applying..."
+    - ./tofu apply -auto-approve 
+    - pwd
+  artifacts:
+    when: always
+    paths:
+      - terraform/terraform.tfvars
+      - terraform/terraform-debug.log
